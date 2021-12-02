@@ -1,2 +1,2 @@
-# person-reid
-A test repo for person reidentification model training
+# autoencoder-siamese-experiments
+A test repo for experimenting autoencoder and siamese networks
