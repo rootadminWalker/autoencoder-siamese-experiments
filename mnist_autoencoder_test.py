@@ -7,41 +7,10 @@ import numpy as np
 from sklearn.model_selection import train_test_split
 from tensorflow.keras.callbacks import TensorBoard, ModelCheckpoint
 from tensorflow.keras.datasets import mnist
-from tensorflow.keras.layers import Input, Dense, Reshape, Flatten
-from tensorflow.keras.models import Model
 from tensorflow.keras.optimizers import Adam, SGD
 from tensorflow.keras.utils import plot_model
 
-
-def build_autoencoder(input_shape=(28, 28, 1), latent_dim=16):
-    encoder_in = Input(shape=input_shape)
-
-    # Encoder
-    x = encoder_in
-    x = Flatten()(x)
-    x = Dense(
-        units=512,
-        activation='relu'
-    )(x)
-    latent = Dense(units=latent_dim)(x)
-    encoder = Model(encoder_in, latent, name="encoder")
-
-    # Decoder
-    decoder_in = Input(shape=(latent_dim,))
-    y = decoder_in
-    y = Dense(
-        units=512,
-        activation='relu'
-    )(y)
-    y = Dense(
-        units=784,
-        activation='sigmoid'
-    )(y)
-    decoder_out = Reshape(target_shape=input_shape)(y)
-    decoder = Model(decoder_in, decoder_out, name="decoder")
-
-    autoencoder = Model(encoder_in, decoder(encoder(encoder_in)), name="autoencoder")
-    return encoder, decoder, autoencoder
+from models import SimpleAutoEncoder
 
 
 def main(args):
@@ -52,7 +21,7 @@ def main(args):
 
     output_base_path = args['output_path']
     model_checkpoints_path = os.path.join(output_base_path, 'model_checkpoints')
-    model_structures_path = os.path.join(output_base_path,  'model_structures')
+    model_structures_path = os.path.join(output_base_path, 'model_structures')
     info_file_path = os.path.join(output_base_path, 'info.json')
 
     if not os.path.exists(output_base_path):
@@ -60,7 +29,7 @@ def main(args):
         os.mkdir(model_checkpoints_path)
         os.mkdir(model_structures_path)
 
-    encoder, decoder, autoencoder = build_autoencoder(latent_dim=args['latent_dim'])
+    encoder, decoder, autoencoder = SimpleAutoEncoder.build(input_shape=(28, 28, 1), latent_dim=args['latent_dim'])
 
     plot_model(encoder, show_shapes=True, to_file=os.path.join(model_structures_path, 'encoder.png'))
     plot_model(decoder, show_shapes=True, to_file=os.path.join(model_structures_path, 'decoder.png'))
@@ -133,7 +102,6 @@ def main(args):
 
 
 if __name__ == '__main__':
-
     parser = argparse.ArgumentParser()
     parser.add_argument('-o', '--output-path', type=str, required=True,
                         help="Output path for the training result, includes tensorboard logs and model checkpoints")
