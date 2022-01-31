@@ -10,7 +10,7 @@ from tensorflow.keras.datasets import mnist
 from tensorflow.keras.optimizers import Adam, SGD
 from tensorflow.keras.utils import plot_model
 
-from models import SimpleAutoEncoder
+from models import ConvolutionAutoEncoder
 
 
 def main(args):
@@ -29,7 +29,7 @@ def main(args):
         os.mkdir(model_checkpoints_path)
         os.mkdir(model_structures_path)
 
-    encoder, decoder, autoencoder = SimpleAutoEncoder.build(input_shape=(28, 28, 1), latent_dim=args['latent_dim'])
+    encoder, decoder, autoencoder = ConvolutionAutoEncoder.build(input_shape=(28, 28, 1), latent_dim=args['latent_dim'])
 
     plot_model(encoder, show_shapes=True, to_file=os.path.join(model_structures_path, 'encoder.png'))
     plot_model(decoder, show_shapes=True, to_file=os.path.join(model_structures_path, 'decoder.png'))
