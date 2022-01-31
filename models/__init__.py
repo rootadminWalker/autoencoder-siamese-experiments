@@ -1,1 +1,2 @@
 from .SimpleAutoEncoder import SimpleAutoEncoder
+from .ConvolutionAutoEncoder import ConvolutionAutoEncoder
