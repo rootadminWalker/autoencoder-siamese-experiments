@@ -1,117 +1,119 @@
 import argparse
 import json
+import math
 import os
-from random import choice
+import pickle
 
+import numpy as np
 import torch
 import torchvision
-from torch import nn
-from torch.utils.data import DataLoader
+from matplotlib import pyplot as plt
+from matplotlib.ticker import MultipleLocator, StrMethodFormatter
+from rich.console import Console
+from rich.live import Live
+from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeRemainingColumn, TimeElapsedColumn
+from rich.rule import Rule
+from rich.table import Table
+from rich.traceback import install
 from torchinfo import summary
-import torch.nn.functional as F
 from torchviz import make_dot
 
+from datasets import SiameseMNISTLoader
+from losses import ContrastiveLoss, MarginMSELoss
+from models import ConvSiamese
+
+install(show_locals=True)
 os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
+console = Console()
+print = console.print
 
 
-class ContrastiveLoss(nn.Module):
-    def __init__(self):
-        super(ContrastiveLoss, self).__init__()
-
-    @staticmethod
-    def contrastive_loss(y, Dw, margin=2):
-        return torch.mean((1 - y) * Dw.pow(2) + (y) * torch.pow(torch.clamp(margin - Dw, min=0.0), 2))
-
-    def forward(self, embedding1, embedding2, label):
-        dist = F.pairwise_distance(embedding1, embedding2, keepdim=True)
-        loss = self.contrastive_loss(label, dist)
-        return loss
+def show_epoch_result_table(epoch, train_loss, val_loss):
+    table = Table(title=f"Epoch {epoch} results", show_lines=True, show_edge=True)
+    table.add_column('Loss Type')
+    table.add_column('Value', justify='right')
+    table.add_row('Training loss', train_loss)
+    table.add_row('Validation loss', val_loss)
+    print(table)
 
 
-class ConvSiamese(nn.Module):
-    def __init__(self, embedding_dim):
-        super(ConvSiamese, self).__init__()
-        self.model = nn.Sequential(
-            nn.Conv2d(
-                in_channels=1,
-                out_channels=64,
-                kernel_size=(2, 2),
-                padding='same',
-            ),
-            nn.ReLU(),
-            nn.MaxPool2d(kernel_size=(2, 2)),
-            nn.Dropout(0.3),
-            nn.Conv2d(
-                in_channels=64,
-                out_channels=64,
-                kernel_size=(2, 2),
-                padding='same',
-            ),
-            nn.ReLU(),
-            nn.MaxPool2d(kernel_size=(2, 2)),
-            nn.Dropout(0.3),
-            nn.Flatten(),
-            nn.Linear(in_features=3136, out_features=1024),
-            nn.ReLU(),
-            nn.Linear(in_features=1024, out_features=256),
-            nn.ReLU(),
-            nn.Linear(in_features=256, out_features=embedding_dim),
-        )
+def make_progress_table():
+    train_validate_progress = Progress(
+        SpinnerColumn('dots'),
+        TextColumn("[progress.description]{task.description}"),
+        TextColumn("[{task.completed}/{task.total}]"),
+        BarColumn(),
+        TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+        TimeElapsedColumn(),
+        TimeRemainingColumn()
+    )
 
-    def forward(self, x1, x2):
-        embedding1 = self.model(x1)
-        embedding2 = self.model(x2)
-        dist = F.pairwise_distance(embedding1, embedding2)
-        return dist
+    epoch_progress = Progress(
+        SpinnerColumn('betaWave'),
+        TextColumn("[progress.description]{task.description}"),
+        TextColumn("[{task.completed}/{task.total}]", style='bold magenta1'),
+        BarColumn(bar_width=150),
+        TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+        TimeElapsedColumn(),
+        TimeRemainingColumn()
+    )
+
+    progress_table = Table.grid()
+    progress_table.add_row(train_validate_progress)
+    progress_table.add_row(epoch_progress)
+
+    return progress_table, train_validate_progress, epoch_progress
 
 
-class SiameseMNISTLoader(DataLoader):
-    def __init__(self, mnist_dataset, batch_size):
-        super(SiameseMNISTLoader, self).__init__(None, batch_size=batch_size, num_workers=4, pin_memory=True)
-        self.mnist_dataset = mnist_dataset
-        self.full_length = len(self.mnist_dataset) * self.batch_size
+def validate(progress, validation_task, device, dataloader, model, loss_fn, batch_size,
+             valid_image_limit=None):
+    validation_task.start()
+    with torch.no_grad():
+        loss_history = []
+        model.eval()
+        for batch, (pair_images, labels) in enumerate(dataloader.validate()):
+            imagesA, imagesB = pair_images
+            imagesA = imagesA.to(device)
+            imagesB = imagesB.to(device)
+            labels = labels.to(device)
 
-    def __len__(self):
-        return len(self.mnist_dataset)
+            # Compute prediction error
+            dist = model(imagesA, imagesB)
+            loss = loss_fn(dist, labels)
+            loss_history.append(loss)
 
-    def __iter__(self):
-        for idx in range(len(self)):
-            selected_im = self.mnist_dataset[idx][0]
-            selected_label = self.mnist_dataset[idx][1]
+            loss, current = loss.item(), batch * batch_size
+            progress.console.log(f"val_loss: {loss:>7f}")
 
-            true_label_idxes = [i for i in range(len(self.mnist_dataset)) if
-                                self.mnist_dataset.targets[i] == selected_label]
-            false_label_idxes = [i for i in range(len(self.mnist_dataset)) if
-                                 self.mnist_dataset.targets[i] != selected_label]
+            progress.update(
+                validation_task,
+                description=f'[red]Validating...',
+                advance=batch_size
+            )
 
-            pair_images, pair_labels = [], []
+            if current >= valid_image_limit:
+                break
 
-            for b in range(self.batch_size // 2):
-                # Positive pair
-                true_pair_idx = choice(true_label_idxes)
-                true_image_b = self.mnist_dataset[true_pair_idx][0]
-                true_image_pair = [selected_im, true_image_b]
-                pair_images.append(torch.stack(true_image_pair))
-                pair_labels.append(1)
-
-                # Negative pair
-                false_pair_idx = choice(false_label_idxes)
-                false_image_b = self.mnist_dataset[false_pair_idx][0]
-                false_image_pair = [selected_im, false_image_b]
-                pair_images.append(torch.stack(false_image_pair))
-                pair_labels.append(0)
-
-            pair_images = torch.stack(pair_images).reshape((2, self.batch_size, 1, 28, 28))
-            yield pair_images, torch.tensor(pair_labels)
+        val_loss = torch.tensor(loss_history)
+        return val_loss
 
 
-def train(device, dataloader, model, loss_fn, optimizer, batch_size, image_limit=None):
-    size = dataloader.full_length
-    if image_limit is None:
-        image_limit = size
+def train(epoch, total_epochs, progress, device, dataloader, model, loss_fn, optimizer, batch_size,
+          train_image_limit=None, valid_image_limit=None):
+    train_loss_history = []
+    size = dataloader.train_len
+    if train_image_limit is None:
+        train_image_limit = size
+    if valid_image_limit is None:
+        valid_image_limit = size
 
     model.train()
-    for batch, (pair_images, labels) in enumerate(dataloader):
+
+    train_task = progress.add_task(f"[yellow]Waiting to train", total=train_image_limit)
+    validation_task = progress.add_task("[yellow]Validation...waiting", total=valid_image_limit, start=False)
+
+    print(Rule('Training stage'))
+    for batch, (pair_images, labels) in enumerate(dataloader.train()):
         imagesA, imagesB = pair_images
         imagesA = imagesA.to(device)
         imagesB = imagesB.to(device)
@@ -122,17 +124,96 @@ def train(device, dataloader, model, loss_fn, optimizer, batch_size, image_limit
 
         # Compute prediction error
         dist = model(imagesA, imagesB)
-        loss = loss_fn(dist, (1 - labels).abs().type(torch.float)).sum()
+        loss = loss_fn(dist, labels)
+        train_loss_history.append(loss)
 
         # Backpropagation
         loss.backward()
         optimizer.step()
 
         loss, current = loss.item(), batch * batch_size
-        print(f"loss: {loss:>7f} [{current:>5d}/{image_limit:>5d}]")
+        progress.console.log(f"loss: {loss:>7f}")
 
-        if current >= image_limit:
+        progress.update(
+            train_task,
+            description=f"[red]Training...",
+            advance=batch_size
+        )
+        if current >= train_image_limit:
             break
+
+    train_loss_history = torch.tensor(train_loss_history)
+
+    progress.update(train_task, description=f"[green]Training stage...completed", )
+    print(Rule("Validation round"))
+    val_loss = validate(
+        progress=progress,
+        validation_task=validation_task,
+        device=device,
+        dataloader=dataloader,
+        model=model,
+        loss_fn=loss_fn,
+        batch_size=batch_size,
+        valid_image_limit=valid_image_limit
+    ).detach().mean().cpu().numpy()
+    progress.update(validation_task, description=f"[green]Validation stage...completed")
+    print(Rule(f'Mean val_loss: {val_loss}'))
+
+    progress.remove_task(train_task)
+    progress.remove_task(validation_task)
+
+    show_epoch_result_table(
+        epoch=epoch,
+        train_loss=str(train_loss_history.mean().detach().cpu().numpy()),
+        val_loss=str(val_loss)
+    )
+
+    return train_loss_history, val_loss
+
+
+def plot_graph_per_steps(fn, train_history, val_history, train_steps, loss_fn_name):
+    TN = np.arange(0, len(train_history))
+    VN = np.arange(train_steps, len(train_history) + 1, train_steps)
+    plt.style.use("ggplot")
+    plt.figure()
+    plt.plot(TN, train_history, label="train_loss")
+    plt.plot(VN, val_history, label="val_loss")
+    plt.scatter(VN, val_history, c='#1f77b4', zorder=3)
+    plt.title("Training and Validation Loss (Steps)")
+    plt.xlabel("Steps #")
+    plt.ylabel(f"Loss ({loss_fn_name})")
+    plt.legend(loc="upper right")
+    plt.savefig(fn)
+    # plt.show()
+
+
+def plot_graph_per_epoch(fn, epochs, train_history, val_history, train_steps, loss_fn_name):
+    train_history_per_epoch = []
+    for idx in np.arange(0, epochs):
+        epoch_loss = np.mean(train_history[idx * train_steps:(idx + 1) * train_steps])
+        train_history_per_epoch.append(epoch_loss)
+    N = np.arange(0, epochs)
+    plt.style.use("ggplot")
+    plt.figure()
+    plt.plot(N, train_history_per_epoch, label="train_loss")
+    plt.plot(N, val_history, label="val_loss")
+    plt.scatter(N, val_history, c='#1f77b4', zorder=3)
+
+    plt.gca().xaxis.set_major_locator(MultipleLocator(2))
+    plt.gca().xaxis.set_major_formatter(StrMethodFormatter("{x:.0f}"))
+
+    plt.title("Training and Validation Loss (Epochs)")
+    plt.xlabel("Epochs #")
+    plt.ylabel(f"Loss ({loss_fn_name})")
+    plt.legend(loc="upper right")
+    plt.savefig(fn)
+    # plt.show()
+
+
+def plot_graphs(epochs, train_history, val_history, train_steps, loss_fn_name, fn1, fn2):
+    plot_graph_per_steps(fn1, train_history, val_history, train_steps, loss_fn_name)
+    plt.clf()
+    plot_graph_per_epoch(fn2, epochs, train_history, val_history, train_steps, loss_fn_name)
 
 
 def main(args):
@@ -140,41 +221,63 @@ def main(args):
         'adam': torch.optim.Adam,
         'SGD': torch.optim.SGD
     }
+    loss_map = {
+        'mse': MarginMSELoss(margin=args['margin']),
+        'contrastive': ContrastiveLoss(margin=args['margin'])
+    }
     device = args['device']
 
-    model = ConvSiamese(embedding_dim=args['embedding_dim'])
+    model = ConvSiamese(embedding_dim=args['embedding_dim'], conv_blocks=args['conv_blocks'], filters=args['filters'])
     summary(model, input_size=((1, 1, 28, 28), (1, 1, 28, 28)))
     model.to(device)
 
-    train_dataset = torchvision.datasets.MNIST(
+    dataset = torchvision.datasets.MNIST(
         root='/tmp/',
         train=True,
         transform=torchvision.transforms.ToTensor(),
-        download=True
+        download=True,
     )
 
-    # test_dataset = torchvision.datasets.MNIST(
-    #     root='/tmp',
-    #     train=False,
-    #     transform=torchvision.transforms.ToTensor(),
-    #     download=True
-    # )
+    train_history = []
+    val_history = []
 
     EPOCHS = args['epochs']
     BATCH_SIZE = args['batch_size']
     OPT = args['optimizer']
+    loss_func = loss_map[args['loss']]
 
-    train_dataloader = SiameseMNISTLoader(train_dataset, batch_size=BATCH_SIZE)
+    true_label = 2 if args['loss'] == 'mse' else 1
+    dataloader = SiameseMNISTLoader(
+        dataset,
+        batch_size=BATCH_SIZE,
+        true_label=true_label,
+        train_valid_split=0.9
+    )
 
-    output_base_path = args['output_path']
+    train_image_limit = args['train_image_limit']
+    if train_image_limit is None:
+        train_image_limit = dataloader.train_len
+
+    valid_image_limit = args['valid_image_limit']
+    if valid_image_limit is None:
+        valid_image_limit = dataloader.valid_len
+
+    train_steps = math.ceil(train_image_limit / BATCH_SIZE) + 1
+
+    output_dir_name = f"embedding_dim_{args['embedding_dim']}_ep{EPOCHS}_loss_{args['loss']}_margin_{args['margin']}"
+    output_base_path = os.path.join(args['output_dir'], output_dir_name)
     model_checkpoints_path = os.path.join(output_base_path, 'model_checkpoints')
+    history_checkpoints_path = os.path.join(output_base_path, 'history_checkpoints')
     model_structures_path = os.path.join(output_base_path, 'model_structures')
     info_file_path = os.path.join(output_base_path, 'info.json')
+    loss_steps_path = os.path.join(output_base_path, 'loss_steps.png')
+    loss_epochs_path = os.path.join(output_base_path, 'loss_epochs.png')
 
     if not os.path.exists(output_base_path):
         os.mkdir(output_base_path)
         os.mkdir(model_checkpoints_path)
         os.mkdir(model_structures_path)
+        os.mkdir(history_checkpoints_path)
 
     make_dot(torch.tensor(0.5), params=dict(list(model.named_parameters()))).render(
         os.path.join(model_structures_path, 'siamese.png'), format='png')
@@ -182,65 +285,88 @@ def main(args):
     siamese_output_path = os.path.join(output_base_path, 'siamese.pth')
 
     opt = optimizers_map[OPT](model.parameters(), lr=args['lr'])
-    for t in range(EPOCHS):
-        print(f"Epoch {t + 1}\n-------------------------------------")
-        train(device, train_dataloader, model, nn.MSELoss(), opt, BATCH_SIZE)
+
+    progress_table, train_validation_progress, epoch_progress = make_progress_table()
+    epoch_task = epoch_progress.add_task('[bold dark_slate_gray1]Epoch', completed=1, total=EPOCHS)
+    with Live(progress_table, refresh_per_second=10):
+        for t in range(EPOCHS):
+            current_epoch = t + 1
+            print(Rule(f"Epoch {current_epoch}"))
+            train_loss_history, val_loss = train(
+                epoch=current_epoch,
+                total_epochs=EPOCHS,
+                progress=train_validation_progress,
+                device=device,
+                dataloader=dataloader,
+                model=model,
+                loss_fn=loss_func,
+                optimizer=opt,
+                batch_size=BATCH_SIZE,
+                train_image_limit=train_image_limit,
+                valid_image_limit=valid_image_limit
+            )
+            train_history.extend(train_loss_history)
+            val_history.append(val_loss)
+            if current_epoch < EPOCHS:
+                checkpoint_model_path = os.path.join(
+                    model_checkpoints_path,
+                    f'ep{current_epoch}_til{train_image_limit}_vil{valid_image_limit}_train-loss{train_loss_history.mean():.4f}_val-loss{val_loss:.4f}.pth')
+                torch.save(model.state_dict(), checkpoint_model_path)
+
+                history_checkpoint_file = os.path.join(history_checkpoints_path, f'ep{current_epoch}.pickle')
+                with open(history_checkpoint_file, 'wb+') as f:
+                    pickle.dump({'train_history': train_history, 'val_history': val_history}, f)
+
+            epoch_progress.update(epoch_task, advance=1)
 
     torch.save(model.state_dict(), siamese_output_path)
 
-    # N = np.arange(0, EPOCHS)
-    # plt.style.use("ggplot")
-    # plt.figure()
-    # plt.plot(N, history.history["loss"], label="train_loss")
-    # plt.plot(N, history.history["val_loss"], label="val_loss")
-    # plt.plot(N, history.history["accuracy"], label="train_acc")
-    # plt.plot(N, history.history["val_accuracy"], label="val_acc")
-    # plt.title("Training Loss and Accuracy")
-    # plt.xlabel("Epoch #")
-    # plt.ylabel("Loss/Accuracy")
-    # plt.legend(loc="lower left")
+    plot_graphs(
+        epochs=EPOCHS,
+        train_history=train_history,
+        val_history=val_history,
+        train_steps=train_steps,
+        loss_fn_name=args['loss'],
+        fn1=loss_steps_path,
+        fn2=loss_epochs_path
+    )
 
     with open(info_file_path, 'w+') as f:
         json.dump({
             'trained_epochs': EPOCHS,
             'batch_size': BATCH_SIZE,
-            'loss_func': 'contrastive_loss',
-            'optimizer': OPT
+            'loss_func': args['loss'],
+            'margin': args['margin'],
+            'optimizer': OPT,
+            'train_image_amount': train_image_limit,
+            'valid_image_amount': valid_image_limit,
         }, f, indent=4)
-
-    # model.eval()
-    # for batch_images, batch_labels in train_dataloader:
-    #     batch_images = batch_images.reshape((32, 2, 1, 28, 28))
-    #     for pair_image, label in zip(batch_images, batch_labels):
-    #         imageA, imageB = pair_image
-    #         imageA = torch.stack([imageA]).to(device)
-    #         imageB = torch.stack([imageB]).to(device)
-    #         dist = model(imageA, imageB).cpu()
-    #         print(f'Estimated Dist: {dist}, Loss: {model.contrastive_loss(label, dist)}')
-    #
-    #         imageA = np.array(imageA.cpu()).reshape((28, 28, 1)) * 255
-    #         imageA = imageA.astype('uint8')
-    #         imageB = np.array(imageB.cpu()).reshape((28, 28, 1)) * 255
-    #         imageB = imageB.astype('uint8')
-    #         hstacked = np.hstack([imageA, imageB])
-    #         print(label)
-    #
-    #         cv.imshow('frame', hstacked)
-    #         cv.waitKey(0)
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('-o', '--output-path', type=str, required=True,
-                        help="Output path for the training result, includes tensorboard logs and model checkpoints")
+    parser.add_argument('-o', '--output-dir', type=str, required=True,
+                        help="Output dir for the training result, includes tensorboard logs and model checkpoints")
     parser.add_argument('-e', '--epochs', type=int, required=True,
                         help="Epochs of training")
     parser.add_argument('-b', '--batch-size', type=int, default=32,
                         help="Batch size for training")
     parser.add_argument('--optimizer', type=str, default='adam',
                         help='Optimizer for the training')
+    parser.add_argument('-lo', '--loss', type=str, default='mse',
+                        help='Loss function for training')
+    parser.add_argument('-m', '--margin', type=int, default=2,
+                        help='Margin of the two loss functions')
     parser.add_argument('-lr', type=float, default=1e-3,
                         help='Learning rate for the training')
+    parser.add_argument('-cb', '--conv-blocks', type=int, default=2,
+                        help="Conv blocks of the network")
+    parser.add_argument('-f', '--filters', type=int, default=64,
+                        help='Number of filters of the network')
+    parser.add_argument('-til', '--train-image-limit', type=int, default=None,
+                        help='Train image limit per epoch')
+    parser.add_argument('-vil', '--valid-image-limit', type=int, default=None,
+                        help='Validation image limit per epoch')
     parser.add_argument('--embedding-dim', type=int, default=48,
                         help='Num of latent space representation dims')
     parser.add_argument('-d', '--device', type=str, default='cuda:0',
