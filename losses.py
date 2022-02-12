@@ -50,3 +50,16 @@ class ContrastiveLoss(nn.Module):
     def forward(self, dist, label):
         loss = self.contrastive_loss(label, dist)
         return loss
+
+
+class TripletLoss(nn.Module):
+    def __init__(self, margin):
+        super(TripletLoss, self).__init__()
+        self.margin = margin
+
+    def triplet_loss(self, anchor_positive_dist, anchor_negative_dist):
+        return torch.mean(torch.clamp(anchor_positive_dist - anchor_negative_dist + self.margin, min=0.0))
+
+    def forward(self, anchor_positive_dist, anchor_negative_dist):
+        L = self.triplet_loss(anchor_positive_dist, anchor_negative_dist)
+        return L
