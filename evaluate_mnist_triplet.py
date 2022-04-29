@@ -1,10 +1,11 @@
 import cv2 as cv
 import numpy as np
+import torch
 import torch.nn.functional as F
-import torchvision
-import torchvision.transforms as T
+from torch.utils.data import DataLoader
+import utils
 
-from datasets import TripletMNISTLoader
+from datasets import TripletMarket1501Dataset
 from models import OldConvSiamese
 
 
@@ -20,6 +21,7 @@ class ConvSiamese(OldConvSiamese):
 
 
 if __name__ == '__main__':
+    torch.multiprocessing.set_start_method('spawn')
     device = 'cuda:0'
     # model = ConvSiamese(embedding_dim=48)
     # model.load_state_dict(torch.load(
@@ -28,46 +30,30 @@ if __name__ == '__main__':
     # summary(model, input_size=((1, 1, 28, 28), (1, 1, 28, 28)))
     # model.to(device)
 
-    transforms = T.Compose([
-        T.ToTensor(),
-        T.Lambda(lambda i: i.cuda())
-    ])
+    dataset = TripletMarket1501Dataset('/media/rootadminwalker/DATA/datasets/Market-1501-v15.09.15', device='cuda:0',
+                                       batch_size=32,
+                                       triplets_per_anchor=12)
+    train_valid_split = 0.8
+    train = torch.utils.data.Subset(dataset, list(range(int(len(dataset) * train_valid_split))))
+    valid = torch.utils.data.Subset(dataset, list(range(int(len(dataset) * train_valid_split), len(dataset))))
 
-    test_dataset = torchvision.datasets.MNIST(
-        root='/tmp',
-        train=True,
-        transform=transforms,
-        download=True
-    )
-    test_dataloader = TripletMNISTLoader(test_dataset, device='cuda:0', batch_size=32, train_valid_split=0.9,
-                                         image_limit=50, pairs_per_anchor=3)
+    test_dataloader = DataLoader(train, batch_size=32, num_workers=0)
 
-    # for batch_images, batch_labels in test_dataloader.validate():
-    for batch_images in test_dataloader.train():
+    for batch_images in test_dataloader:
         print(batch_images.shape)
-        for idx in range(batch_images.shape[1]):
-            imageA = batch_images[0, idx].cuda().reshape(1, 1, 28, 28)
-            imageB = batch_images[1, idx].cuda().reshape(1, 1, 28, 28)
-            imageC = batch_images[2, idx].cuda().reshape(1, 1, 28, 28)
-            # label = batch_labels[idx].cuda()
-            # dist, embedding1, embedding2 = model(imageA, imageB)
+        for idx in range(batch_images.shape[0]):
+            imageA = batch_images[idx, 0]
+            imageB = batch_images[idx, 1]
+            imageC = batch_images[idx, 2]
+            print(imageA.dtype)
 
-            imageA = np.array(imageA.cpu()).reshape((28, 28, 1)) * 255
-            imageA = imageA.astype('uint8')
-            imageB = np.array(imageB.cpu()).reshape((28, 28, 1)) * 255
-            imageB = imageB.astype('uint8')
-            imageC = np.array(imageC.cpu()).reshape((28, 28, 1)) * 255
-            imageC = imageC.astype('uint8')
+            print()
+            imageA = utils.torch_to_cv2(imageA)
+            imageB = utils.torch_to_cv2(imageB)
+            imageC = utils.torch_to_cv2(imageC)
+
             hstacked = np.hstack([imageA, imageB, imageC])
-
-            # # loss = torch.nn.MSELoss()((2 - label).abs().type(torch.float).cuda(), dist)
-            # cpu_dist = dist.detach().cpu().numpy()[0]
-            # print(f'Estimated Dist: {cpu_dist:.6f}, True label: {label}')
-            # print(f'Embedding1: {embedding1}, Embedding2: {embedding2}')
-            #
-            # hstacked = cv.resize(hstacked, (512, 256))
-            # hstacked = cv.putText(hstacked, f'Distance: {cpu_dist:.6f}', (100, 40), cv.FONT_HERSHEY_SIMPLEX,
-            #                       1, (255, 255, 255), 2, cv.LINE_AA)
+            print(imageA.shape, imageB.shape, imageC.shape)
 
             cv.imshow('frame', hstacked)
             cv.waitKey(0)
