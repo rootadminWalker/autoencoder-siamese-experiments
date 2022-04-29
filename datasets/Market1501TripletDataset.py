@@ -43,7 +43,7 @@ class Market1501Dataset(Dataset):
             dataset_path: str,
             device: str,
             batch_size: int,
-            transforms
+            transforms=None
     ):
         self.dataset_path = dataset_path
         self.device = device
@@ -80,10 +80,12 @@ class Market1501Dataset(Dataset):
             sorted(self.dataset['labels_to_path_idx'].items(), key=lambda item: int(item[0].split('_')[0]))
         }
 
-    def read_image_from_device(self, path, device):
+    def read_image_from_device(self, path, device, scale_to_01=True):
         image = cv.imread(path)
-        converted_image = torch.tensor(image, device=device).permute(2, 0, 1)
-        return self.transforms(converted_image)
+        converted_image = torch.tensor(image, device=device).permute(2, 0, 1) / (255 * scale_to_01)
+        if self.transforms is not None:
+            converted_image = self.transforms(converted_image)
+        return converted_image
 
     @staticmethod
     def get_label_from_path(image_path):
@@ -121,7 +123,7 @@ class SiameseMarket1501Dataset(Market1501Dataset):
             dataset_path: str,
             device: str,
             batch_size: int,
-            transforms,
+            transforms=None,
             image_limit: Optional[int] = None,
             pairs_per_image: Optional[int] = None
     ):
@@ -175,7 +177,7 @@ class TripletMarket1501Dataset(Market1501Dataset):
             dataset_path: str,
             device: str,
             batch_size: int,
-            transforms,
+            transforms=None,
             image_limit: Optional[int] = None,
             triplets_per_anchor: Optional[int] = None
     ):

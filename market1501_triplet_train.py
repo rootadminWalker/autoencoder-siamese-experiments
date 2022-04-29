@@ -204,7 +204,7 @@ def main(args):
 
     # Load the dataset
     transforms = T.Compose([
-        T.Lambda(lambda x: x / 255),
+        # T.Lambda(lambda x: x / 255),
         T.Resize(size=(input_shape[-1], input_shape[-2]))
     ])
     dataset = datasets.TripletMarket1501Dataset(
