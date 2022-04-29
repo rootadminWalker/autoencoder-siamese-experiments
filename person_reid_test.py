@@ -52,7 +52,7 @@ def main():
     )
 
     model.load_state_dict(torch.load(
-        '/media/rootadminwalker/DATA/outputs/Market1501_triplet_outputs/model_name(Mini-VGG)_embedding_dim(32)_ep30_loss(triplet)_margin(2)(Early stopped)/model_checkpoints/ep2_ilNone_train-loss0.0657_val-loss0.0477.pth'))
+        '/media/rootadminwalker/DATA/outputs/Market1501_triplet_outputs/model_name(Mini-VGG)_embedding_dim(32)_ep30_loss(triplet)_margin(2)/model_checkpoints/ep1_ilNone_train-loss0.1475_val-loss0.2292.pth'))
     model.to(device)
     model.eval()
 
@@ -80,9 +80,10 @@ def main():
             for person_box in person_boxes:
                 crop_image = bridge.compressed_imgmsg_to_cv2(person_box.source_img)
                 crop_image = cv.resize(crop_image, (input_shape[-1:1:-1]))
-                blob = utils.cv2_to_torch(crop_image, device=device)
+                blob = utils.cv2_to_torch(crop_image, device=device) / 255
                 embedding = model(blob)
                 dist = F.pairwise_distance(embedding, init_data.init_vector)
+                print(dist)
                 if dist <= 10:
                     color = (32, 255, 0)
                 else:
@@ -99,7 +100,7 @@ def main():
             rx, ry, rw, rh = cv.selectROI('test', frame)
             init_image = frame[ry:ry + rh, rx:rx + rw, :].copy()
             init_image = cv.resize(init_image, (input_shape[-1:1:-1]))
-            blob = utils.cv2_to_torch(init_image, device=device)
+            blob = utils.cv2_to_torch(init_image, device=device) / 255
             init_data.init_image = blob
             init_data.init_vector = model(blob)
             __isCaptured = True
