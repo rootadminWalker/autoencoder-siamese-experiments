@@ -27,15 +27,15 @@ from torch import nn
 
 
 class ConvSiamese(nn.Module):
-    def __init__(self, embedding_dim, conv_blocks, filters=64):
+    def __init__(self, embedding_dim, conv_blocks, in_channels=1, filters=64):
         super(ConvSiamese, self).__init__()
         blocks = []
         for _ in range(conv_blocks - 1):
             blocks.append(self.__conv_block(filters))
         self.model = nn.Sequential(
             nn.Conv2d(
-                in_channels=1,
-                out_channels=64,
+                in_channels=in_channels,
+                out_channels=filters,
                 kernel_size=(2, 2),
                 padding='same',
             ),
