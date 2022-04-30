@@ -89,9 +89,9 @@ if __name__ == '__main__':
         cv.imshow('original', search_image)
         cv.imshow('similar ones', np.hstack(ranked_images))
         cv.waitKey(0)
-        remove_idxes = input("\nWhich are those DON't want to keep? (Separate by space, use order from 1) -- ").split()
-        for remove_idx in remove_idxes:
-            del top_k_results[list(top_k_results.keys())[int(remove_idx) - 1]]
+        # remove_idxes = input("\nWhich are those DON't want to keep? (Separate by space, use order from 1) -- ").split()
+        # for remove_idx in remove_idxes:
+        #     del top_k_results[list(top_k_results.keys())[int(remove_idx) - 1]]
 
         print(f"{search_token}: {list(top_k_results.keys())}")
         cv.destroyAllWindows()
