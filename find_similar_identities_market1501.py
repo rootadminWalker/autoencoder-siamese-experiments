@@ -52,12 +52,11 @@ if __name__ == '__main__':
         print('\r', end='')
         print(f'{idx + 1}/{len(train_dataset.dataset["labels_to_path_idx"].keys())}', end='')
 
-    while True:
-        search_token = input("\nPlease input your identity's full token -- ")
+    for search_token in train_dataset.dataset["labels_to_path_idx"].keys():
         if search_token.lower() in ['exit', 'quit']:
             break
 
-        print("Searching...")
+        print(f"Searching for identity {search_token}...")
         if search_token not in query_descriptors:
             print('Identity not found in query')
             continue
