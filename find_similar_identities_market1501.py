@@ -3,7 +3,7 @@ import random
 import cv2 as cv
 import numpy as np
 
-from datasets import SiameseMarket1501Dataset
+from datasets import TripletMarket1501Dataset
 
 
 class PersonReidentification:
@@ -31,10 +31,10 @@ class PersonReidentification:
 
 if __name__ == '__main__':
     device = 'cuda:0'
-    train_dataset = SiameseMarket1501Dataset('/media/rootadminwalker/DATA/datasets/Market-1501-v15.09.15',
+    train_dataset = TripletMarket1501Dataset('/media/rootadminwalker/DATA/datasets/Market-1501-v15.09.15',
                                              device='cuda:0',
                                              batch_size=32,
-                                             pairs_per_image=12, transforms=None)
+                                             triplets_per_anchor=12, transforms=None)
 
     person_reidentification = PersonReidentification(
         bin_path='/home/rootadminwalker/workspace/ROS_projects/src/The_Essense_of_the_Grey_Region/models/intel/person-reidentification-retail-0277/FP32/person-reidentification-retail-0277.bin',
