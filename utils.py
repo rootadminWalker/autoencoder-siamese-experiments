@@ -158,15 +158,14 @@ def plot_graphs(epochs, train_history, val_history, train_steps, loss_name, fn1,
     plot_graph_per_epoch(fn2, epochs, train_history, val_history, train_steps, loss_name)
 
 
+@require_torch_input(check_param_name='tensor')
 def torch_to_cv2(tensor):
-    assert isinstance(tensor, torch.Tensor), "You decided to 'torch_to_cv2', but not giving me a tensor?\n Hilarious"
     image = tensor.squeeze().permute(1, 2, 0).cpu().numpy().astype('uint8')
     return image
 
 
+@require_cv2_input(check_param_name='cv2_image')
 def cv2_to_torch(cv2_image, device='cpu'):
-    assert isinstance(cv2_image,
-                      np.ndarray), "You decided to 'cv2_to_torch', but not giving me a cv2 image?\n Hilarious"
     return torch.tensor(cv2_image, device=device).permute(2, 0, 1).unsqueeze(0).float()
 
 
