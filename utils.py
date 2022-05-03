@@ -169,6 +169,16 @@ def cv2_to_torch(cv2_image, device='cpu'):
     return torch.tensor(cv2_image, device=device).permute(2, 0, 1).unsqueeze(0).float()
 
 
+@require_cv2_or_torch(check_param_name='image')
+def scale_image_to_01(image):
+    return image / 255
+
+
+@require_cv2_or_torch(check_param_name='image')
+def float_to_255(image):
+    return image * 255
+
+
 def train_valid_split(dataset, train_valid_split):
     dataset_len = len(dataset)
     full_indices = range(dataset_len)
