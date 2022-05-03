@@ -272,7 +272,26 @@ class TripletMarket1501Dataset(Market1501Dataset):
 
 
 if __name__ == '__main__':
-    dataset = TripletMarket1501Dataset("/tmp/Market-1501-v15.09.15", "cuda:0", 32, triplets_per_anchor=12)
-    train = torch.utils.data.Subset(dataset, list(range(int(len(dataset) * 0.8))))
-    valid = torch.utils.data.Subset(dataset, list(range(int(len(dataset) * 0.8), len(dataset))))
-    print(train, valid)
+    import matplotlib.pyplot as plt
+
+    dataset = TripletMarket1501Dataset(
+        "/media/rootadminwalker/DATA/datasets/Market-1501-v15.09.15",
+        device="cuda:0",
+        batch_size=32,
+        similar_identities_cfg_path='../similar_identities.json',
+        triplets_per_anchor=12
+    )
+
+    hist = dataset.get_dataset_histogram()
+    steps = 10
+    for i in range(0, len(hist), steps):
+        plt.style.use("ggplot")
+        plt.figure()
+        plt.ylim(0, 80)
+        ch = hist[i:(i + steps)]
+        h = []
+        for ci in ch:
+            h.extend(ci)
+        plt.hist(h, bins=len(ch))
+        plt.show()
+        # sleep(0.1)
