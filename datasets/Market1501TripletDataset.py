@@ -132,11 +132,18 @@ class SiameseMarket1501Dataset(Market1501Dataset):
             dataset_path: str,
             device: str,
             batch_size: int,
+            similar_identities_cfg_path: str = None,
             transforms=None,
             image_limit: Optional[int] = None,
             pairs_per_image: Optional[int] = None
     ):
-        super(SiameseMarket1501Dataset, self).__init__(dataset_path, device, batch_size, transforms)
+        super(SiameseMarket1501Dataset, self).__init__(
+            dataset_path,
+            device,
+            batch_size,
+            similar_identities_cfg_path,
+            transforms
+        )
 
         self.pairs_per_image = pairs_per_image
         if self.pairs_per_image is None:
@@ -163,12 +170,13 @@ class SiameseMarket1501Dataset(Market1501Dataset):
             image1 = self.read_image_from_device(image1_path, self.device).unsqueeze(0)
 
             # Remove the anchors from the individual's idx list
-            isPositive = randint(0, 1)
+            isPositive = random.randint(0, 1)
             if isPositive:
                 same_label_pool = labels_to_path_idx[image1_label]
-                image2_path = image_paths[choice(same_label_pool)]
+                image2_path = image_paths[random.choice(same_label_pool)]
             else:
-                image2_path = choice(image_paths)
+                image2_path = random.choice(image_paths)
+
             image2_label = self.get_label_from_path(image2_path)
             image2 = self.read_image_from_device(image2_path, self.device).unsqueeze(0)
 
