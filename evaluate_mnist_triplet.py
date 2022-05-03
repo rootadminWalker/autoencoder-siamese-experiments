@@ -32,6 +32,7 @@ if __name__ == '__main__':
 
     dataset = TripletMarket1501Dataset('/media/rootadminwalker/DATA/datasets/Market-1501-v15.09.15', device='cuda:0',
                                        batch_size=32,
+                                       similar_identities_cfg_path='./similar_identities.json',
                                        triplets_per_anchor=12)
     train_valid_split = 0.8
     train = torch.utils.data.Subset(dataset, list(range(int(len(dataset) * train_valid_split))))
@@ -42,12 +43,11 @@ if __name__ == '__main__':
     for batch_images in test_dataloader:
         print(batch_images.shape)
         for idx in range(batch_images.shape[0]):
-            imageA = batch_images[idx, 0]
-            imageB = batch_images[idx, 1]
-            imageC = batch_images[idx, 2]
+            imageA = utils.float_to_255(batch_images[idx, 0])
+            imageB = utils.float_to_255(batch_images[idx, 1])
+            imageC = utils.float_to_255(batch_images[idx, 2])
             print(imageA.dtype)
 
-            print()
             imageA = utils.torch_to_cv2(imageA)
             imageB = utils.torch_to_cv2(imageB)
             imageC = utils.torch_to_cv2(imageC)
