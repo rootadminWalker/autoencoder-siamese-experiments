@@ -22,10 +22,10 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 """
-
+import json
 import os
+import random
 from copy import copy
-from random import choice, randint
 from typing import Optional
 
 import cv2 as cv
@@ -43,19 +43,26 @@ class Market1501Dataset(Dataset):
             dataset_path: str,
             device: str,
             batch_size: int,
+            similar_identities_cfg_path: Optional[str] = None,
             transforms=None
     ):
         self.dataset_path = dataset_path
         self.device = device
         self.batch_size = batch_size
+        self.similar_identities_cfg_path = similar_identities_cfg_path
         self.transforms = transforms
 
         self.train_path = os.path.join(self.dataset_path, 'bounding_box_train')
         Market1501Dataset.TRAIN_IMAGES_AMOUNT = len(self.__list_dataset_images(self.train_path))
         self.full_length = 0
 
-        self.dataset = {'labels_to_path_idx': {}, 'image_paths': []}
-        self.__load_dataset(self.train_path)
+        self.similar_identities = {}
+        if similar_identities_cfg_path is not None:
+            with open(similar_identities_cfg_path, 'r') as cfg:
+                self.similar_identities = json.load(cfg)
+
+        self.dataset = {'labels_to_path_idx': {}, 'similar_identities': {}, 'image_paths': []}
+        self.__load_dataset(self.train_path, self.similar_identities)
 
     @staticmethod
     def __list_dataset_images(train_path):
@@ -63,7 +70,7 @@ class Market1501Dataset(Dataset):
         train_images.remove('Thumbs.db')
         return train_images
 
-    def __load_dataset(self, train_path):
+    def __load_dataset(self, train_path, similar_identities):
         train_images = self.__list_dataset_images(train_path)
         for idx, image_name in enumerate(train_images):
             abs_image_path = os.path.join(self.train_path, image_name)
@@ -71,6 +78,8 @@ class Market1501Dataset(Dataset):
 
             if individual not in self.dataset['labels_to_path_idx']:
                 self.dataset['labels_to_path_idx'][individual] = []
+                if individual in similar_identities:
+                    self.dataset['similar_identities'][individual] = similar_identities[individual]
 
             self.dataset['labels_to_path_idx'][individual].append(idx)
             self.dataset['image_paths'].append(abs_image_path)
@@ -177,11 +186,18 @@ class TripletMarket1501Dataset(Market1501Dataset):
             dataset_path: str,
             device: str,
             batch_size: int,
+            similar_identities_cfg_path: Optional[str] = None,
             transforms=None,
             image_limit: Optional[int] = None,
             triplets_per_anchor: Optional[int] = None
     ):
-        super(TripletMarket1501Dataset, self).__init__(dataset_path, device, batch_size, transforms)
+        super(TripletMarket1501Dataset, self).__init__(
+            dataset_path,
+            device,
+            batch_size,
+            similar_identities_cfg_path,
+            transforms
+        )
 
         self.triplets_per_anchor = triplets_per_anchor
         if self.triplets_per_anchor is None:
@@ -213,6 +229,7 @@ class TripletMarket1501Dataset(Market1501Dataset):
 
         labels_to_path_idx = self.dataset['labels_to_path_idx']
         image_paths = self.dataset['image_paths']
+        similar_identities = self.dataset['similar_identities']
         labels = list(labels_to_path_idx.keys())
 
         for idx in range(start_idx, stop_idx):
@@ -224,15 +241,19 @@ class TripletMarket1501Dataset(Market1501Dataset):
             # Remove the anchors from the individual's idx list
             anchor_removed_pool = copy(labels_to_path_idx[anchor_label])
             del anchor_removed_pool[anchor_removed_pool.index(anchor_idx)]
-            positive_idx = choice(anchor_removed_pool)
+            positive_idx = random.choice(anchor_removed_pool)
             positive_path = image_paths[positive_idx]
             positive = self.read_image_from_device(positive_path, self.device)
 
             # Remove the positive label from individual_ids
-            positive_removed_ids = copy(labels)
-            del positive_removed_ids[positive_removed_ids.index(anchor_label)]
-            positive_removed_pool = labels_to_path_idx[choice(positive_removed_ids)]
-            negative_idx = choice(positive_removed_pool)
+            useSimilar = random.randint(0, 1)
+            positive_removed_ids = similar_identities[anchor_label]
+            if not useSimilar or len(positive_removed_ids) == 0:
+                positive_removed_ids = copy(labels)
+                del positive_removed_ids[positive_removed_ids.index(anchor_label)]
+
+            positive_removed_pool = labels_to_path_idx[random.choice(positive_removed_ids)]
+            negative_idx = random.choice(positive_removed_pool)
             negative_path = image_paths[negative_idx]
             negative = self.read_image_from_device(negative_path, self.device)
 
