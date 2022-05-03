@@ -37,6 +37,45 @@ from torchviz import make_dot
 print = Console().print
 
 
+def require_input(require_func):
+    def require_wrapper(check_param_name):
+        def decorator(func):
+            def ultimate_wrapper(*args, **kwargs):
+                arg_pos = func.__code__.co_varnames.index(check_param_name)
+                if check_param_name not in kwargs:
+                    param = args[arg_pos]
+                else:
+                    param = kwargs[check_param_name]
+
+                require_func(func.__name__, param, check_param_name)
+                return func(*args, **kwargs)
+            return ultimate_wrapper
+        return decorator
+    return require_wrapper
+
+
+@require_input
+def require_cv2_input(func_name, param, check_param_name):
+    assert (
+        isinstance(param, np.ndarray) or isinstance(param, torch.Tensor)
+    ), f"Function '{func_name}' has a parameter {check_param_name} requires a cv2 image, \nbut you have {type(param)}"
+
+
+@require_input
+def require_torch_input(func_name, param, check_param_name):
+    assert (
+        isinstance(param, np.ndarray) or isinstance(param, torch.Tensor)
+    ), f"Function '{func_name}' has a parameter {check_param_name} requires a torch tensor, \nbut you have {type(param)}"
+
+
+@require_input
+def require_cv2_or_torch(func_name, param, check_param_name):
+    assert (
+        isinstance(param, np.ndarray) or isinstance(param, torch.Tensor)
+    ), f"""Function '{func_name}' has a parameter {check_param_name} requires a torch tensor or a cv2 image, 
+            but you have {type(param)}"""
+
+
 def make_progress_table():
     train_validate_progress = Progress(
         SpinnerColumn('dots'),
