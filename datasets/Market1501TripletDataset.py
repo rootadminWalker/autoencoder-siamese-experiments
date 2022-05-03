@@ -216,16 +216,16 @@ class TripletMarket1501Dataset(Market1501Dataset):
 
         self.set_full_length(image_limit)
 
-    def get_dataset_histogram(self, show_original=False):
-        show_triplets = not show_original
+    def get_dataset_histogram(self, show_triplets=False):
         hist = []
-        for k, v in self.dataset['labels_to_path_idx_to_idx'].items():
-            quantity = [str(k)] * int(len(v))
-            quantity = max(quantity * show_triplets * self.triplets_per_anchor, quantity)
-            hist.extend(quantity)
+        for label, idxes in self.dataset['labels_to_path_idx'].items():
+            quantity = [label] * int(len(idxes))
+            if show_triplets:
+                quantity = quantity * show_triplets * self.triplets_per_anchor
 
-        hist = map(int, hist)
-        return np.array(list(hist))
+            hist.append(quantity)
+
+        return np.array(hist)
 
     def __len__(self):
         return self.full_length
