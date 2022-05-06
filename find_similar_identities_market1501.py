@@ -92,7 +92,12 @@ class PersonReidentification:
 
 
 if __name__ == '__main__':
-    start = 224
+    start = 0
+    if os.path.exists('./current_count.json'):
+        with open('./current_count.json') as f:
+            start = json.load(f)
+            print(f"User decide to start at {start}")
+
     device = 'cuda:0'
     train_dataset = TripletMarket1501Dataset('/media/rootadminwalker/DATA/datasets/Market-1501-v15.09.15',
                                              device='cuda:0',
@@ -118,8 +123,7 @@ if __name__ == '__main__':
         if (idx + 1) < start:
             continue
 
-        label, relatives_similar_identities = data
-        relatives = relatives_similar_identities['indexes']
+        label, relatives = data
         random_idx = random.choice(relatives)
         query_image_path = train_dataset.dataset['image_paths'][random_idx]
         query_image = cv.imread(query_image_path)
@@ -128,16 +132,18 @@ if __name__ == '__main__':
         print('\r', end='')
         print(f'{idx + 1}/{len(train_dataset.dataset["labels_to_path_idx"].keys())}', end='')
 
+    current_count = 0
     for idx, search_id in enumerate(train_dataset.dataset["labels_to_path_idx"].keys()):
+        current_count = idx + 1
         if search_id.lower() in ['exit', 'quit']:
             break
 
-        print(f"{idx + 1}: Searching for identity {search_id}...")
+        print(f"{current_count}: Searching for identity {search_id}...")
         if search_id not in query_descriptors:
             print('Identity not found in query')
             continue
 
-        random_idx = random.choice(train_dataset.dataset['labels_to_path_idx'][search_id]['indexes'])
+        random_idx = random.choice(train_dataset.dataset['labels_to_path_idx'][search_id])
         image_path = train_dataset.dataset['image_paths'][random_idx]
         search_image = cv.imread(image_path)
         search_descriptor = person_reidentification.parse_descriptor(search_image)
@@ -158,7 +164,7 @@ if __name__ == '__main__':
         ranked_images = {}
         for with_another, result in top_k_results.items():
             token = with_another.split()[-1]
-            random_idx = random.choice(train_dataset.dataset['labels_to_path_idx'][token]['indexes'])
+            random_idx = random.choice(train_dataset.dataset['labels_to_path_idx'][token])
             image_path = train_dataset.dataset['image_paths'][random_idx]
             image = cv.imread(image_path)
             ranked_images[token] = image
@@ -178,4 +184,9 @@ if __name__ == '__main__':
 
     with open(output_file, 'w+') as f:
         json.dump(output_dict, f, indent=4)
+
+    if current_count < len(train_dataset.dataset["labels_to_path_idx"]):
+        with open('./current_count.json', 'w+') as f:
+            json.dump(current_count, f)
+
     cv.destroyAllWindows()
