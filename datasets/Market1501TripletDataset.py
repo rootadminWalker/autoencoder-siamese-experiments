@@ -34,6 +34,8 @@ import torch
 import torch.utils.data
 from torch.utils.data import Dataset
 
+import utils
+
 
 class Market1501Dataset(Dataset):
     TRAIN_IMAGES_AMOUNT = 0
@@ -44,12 +46,14 @@ class Market1501Dataset(Dataset):
             device: str,
             batch_size: int,
             similar_identities_cfg_path: Optional[str] = None,
+            scale_to_01: bool = False,
             transforms=None
     ):
         self.dataset_path = dataset_path
         self.device = device
         self.batch_size = batch_size
         self.similar_identities_cfg_path = similar_identities_cfg_path
+        self.scale_to_01 = scale_to_01
         self.transforms = transforms
 
         self.train_path = os.path.join(self.dataset_path, 'bounding_box_train')
@@ -89,9 +93,12 @@ class Market1501Dataset(Dataset):
             sorted(self.dataset['labels_to_path_idx'].items(), key=lambda item: int(item[0].split('_')[0]))
         }
 
-    def read_image_from_device(self, path, device, scale_to_01=True):
+    def read_image_from_device(self, path, device):
         image = cv.imread(path)
-        converted_image = torch.tensor(image, device=device).permute(2, 0, 1) / (255 * scale_to_01)
+        converted_image = torch.tensor(image, device=device).permute(2, 0, 1)
+        if self.scale_to_01:
+            converted_image = utils.scale_image_to_01(converted_image)
+
         if self.transforms is not None:
             converted_image = self.transforms(converted_image)
         return converted_image
@@ -133,6 +140,7 @@ class SiameseMarket1501Dataset(Market1501Dataset):
             device: str,
             batch_size: int,
             similar_identities_cfg_path: str = None,
+            scale_to_01: bool = False,
             transforms=None,
             image_limit: Optional[int] = None,
             pairs_per_image: Optional[int] = None
@@ -142,6 +150,7 @@ class SiameseMarket1501Dataset(Market1501Dataset):
             device,
             batch_size,
             similar_identities_cfg_path,
+            scale_to_01,
             transforms
         )
 
@@ -195,6 +204,7 @@ class TripletMarket1501Dataset(Market1501Dataset):
             device: str,
             batch_size: int,
             similar_identities_cfg_path: Optional[str] = None,
+            scale_to_01: bool = False,
             transforms=None,
             image_limit: Optional[int] = None,
             triplets_per_anchor: Optional[int] = None
@@ -204,6 +214,7 @@ class TripletMarket1501Dataset(Market1501Dataset):
             device,
             batch_size,
             similar_identities_cfg_path,
+            scale_to_01,
             transforms
         )
 
@@ -279,6 +290,7 @@ if __name__ == '__main__':
         device="cuda:0",
         batch_size=32,
         similar_identities_cfg_path='../similar_identities.json',
+        scale_to_01=True,
         triplets_per_anchor=12
     )
 
