@@ -4,3 +4,4 @@ from .Market1501TripletModel import Market1501TripletModel, Market1501TripletMod
     Market1501TripletMiniVGGEval
 from .SimpleConvSiamese import ConvSiamese, OldConvSiamese
 from .SimpleConvTriplet import ConvTriplet
+from .RMNet import RMNetBackbone
